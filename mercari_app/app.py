@@ -51,18 +51,13 @@ def get_web_data(url):
     import os
     import subprocess
     import sys
+    from playwright.sync_api import sync_playwright
 
-    # --- 強制檢查並安裝 playwright 模組 ---
-    try:
-        import playwright
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
-    
-    # --- 強制安裝 Chromium 瀏覽器 ---
-    # 使用 sys.executable 確保是在同一個 Python 環境執行
+    # 確保瀏覽器已下載 (不包含 install-deps，因為雲端無 sudo 權限)
     subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
 
     with sync_playwright() as p:
+        # ... 後續啟動 browser 的代碼 ...
         try:
             # 加入 Linux 容器專用啟動參數
             browser = p.chromium.launch(
