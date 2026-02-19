@@ -50,15 +50,60 @@ def show_full_image(img_path):
 
 # --- 4. 深度優化爬蟲核心 ---
 def get_web_data(url):
+    # --- 新增這段：自動下載瀏覽器核心 ---
+    import os
+    import subprocess
+    
+    # 確保環境變數路徑正確 (Streamlit Cloud 常用設定)
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0" 
+    
+    # 執行安裝指令
+    subprocess.run(["playwright", "install", "chromium"])
+    # ----------------------------------
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            locale="ja-JP",
-            viewport={'width': 1280, 'height': 800}
+        # 加入 args 避開 sandbox 限制
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox"]
         )
-        page = context.new_page()
+        # ... 原有代碼 ...
+    
+def get_web_data(url):
+    import os
+    import subprocess
+    from playwright.sync_api import sync_playwright
+
+    # 1. 強制設定 Playwright 瀏覽器安裝路徑
+    # 這確保了 playwright install 的位置與 launch 尋找的位置一致
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/home/adminuser/playwright_browsers"
+
+    # 2. 檢查並自動安裝 Chromium (如果不存在才安裝，節省啟動時間)
+    if not os.path.exists(os.environ["PLAYWRIGHT_BROWSERS_PATH"]):
+        subprocess.run(["python", "-m", "playwright", "install", "chromium"])
+        subprocess.run(["python", "-m", "playwright", "install-deps"])
+
+    with sync_playwright() as p:
         try:
+            # 3. 啟動瀏覽器：必須加入 args 避開 Linux 權限限制
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox", 
+                    "--disable-setuid-sandbox", 
+                    "--disable-dev-shm-usage", # 防止記憶體不足
+                    "--disable-gpu"
+                ]
+            )
+            
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                locale="ja-JP",
+                viewport={'width': 1280, 'height': 800}
+            )
+            page = context.new_page()
+            
+            # --- 以下維持你原有的爬蟲邏輯 ---
             page.goto(url, wait_until="load", timeout=30000)
             time.sleep(3) 
             
@@ -84,12 +129,14 @@ def get_web_data(url):
             else:
                 title = page.locator('h1').first.inner_text().strip()
                 img = page.locator('div[data-testid="image-0"] img, img[alt="product-image"]').first.get_attribute('src')
-                
+            
             browser.close()
             return title, img
+
         except Exception as e:
-            browser.close()
-            return f"抓取失敗: {str(e)[:15]}", ""
+            if 'browser' in locals():
+                browser.close()
+            return f"抓取失敗: {str(e)[:20]}", ""
 
 # --- 5. 介面渲染 ---
 init_db()
