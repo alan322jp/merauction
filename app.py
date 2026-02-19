@@ -11,29 +11,42 @@ def ensure_playwright_installed():
     try:
         import playwright
     except ImportError:
-        # 如果環境中找不到 playwright，強制現場安裝
         subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
     
-    # 強制安裝 chromium 瀏覽器本體
-    # 使用 sys.executable 確保安裝在 Streamlit Cloud 當前的 Python 環境中
+    # 安裝 Chromium 瀏覽器
     subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
 
-# 啟動時先跑一次環境檢查
+# 啟動時執行環境檢查
 ensure_playwright_installed()
 
 from playwright.sync_api import sync_playwright
 
-# --- 1. 初始化環境 ---
-# 直接在根目錄操作
+# --- 1. 初始化環境與 CSS 注入 ---
 UPLOAD_DIR = "uploaded_images"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
 st.set_page_config(layout="wide", page_title="ヤフオク・メルカリ發送平台")
 
-# --- 2. 資料庫核心功能 ---
+# CSS 注入：縮小上傳組件尺寸並隱藏標籤
+st.markdown("""
+    <style>
+    .stFileUploader label {
+        display: none;
+    }
+    .stFileUploader section {
+        padding: 0px 5px !important;
+        min-height: 40px !important;
+    }
+    div[data-testid="stExpander"] {
+        border: none !important;
+        box-shadow: none !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 2. 資料庫功能 ---
 def init_db():
-    # 資料庫檔案現在位於根目錄下的 mercari.db
     with sqlite3.connect('mercari.db') as conn:
         conn.execute('''CREATE TABLE IF NOT EXISTS items 
                         (id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -57,35 +70,27 @@ def update_status(item_id, status):
         conn.execute("UPDATE items SET is_done=? WHERE id=?", (status, item_id))
         conn.commit()
 
-# --- 3. 彈窗大圖功能 ---
-@st.dialog("發貨用")
+# --- 3. 彈窗大圖 ---
+@st.dialog("發貨細節圖")
 def show_full_image(img_path):
     if img_path and os.path.exists(img_path):
         st.image(img_path, use_container_width=True)
     else:
-        st.warning("⚠️ 此項目尚未上傳圖 2。")
+        st.warning("⚠️ 檔案不存在。")
 
-# --- 4. 深度優化爬蟲核心 (Linux 容器相容版) ---
+# --- 4. 爬蟲核心 ---
 def get_web_data(url):
     with sync_playwright() as p:
         try:
-            # 必須加入這幾個 args，否則在 Streamlit Cloud 容器中會啟動失敗
             browser = p.chromium.launch(
                 headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu"
-                ]
+                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
             )
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                locale="ja-JP",
-                viewport={'width': 1280, 'height': 800}
+                locale="ja-JP"
             )
             page = context.new_page()
-            
             page.goto(url, wait_until="load", timeout=30000)
             time.sleep(3) 
             
@@ -97,17 +102,15 @@ def get_web_data(url):
                 for s in title_selectors:
                     loc = page.locator(s).first
                     if loc.count() > 0:
-                        t_text = loc.inner_text().strip()
-                        if t_text: title = t_text; break
+                        t_text = loc.inner_text().strip(); title = t_text; break
                 
                 page.evaluate("window.scrollTo(0, 400)")
                 time.sleep(1)
-                img_selectors = ['div.ProductImage__image img', '.ProductImage__body img', '.Image__img', 'div[data-index="0"] img']
+                img_selectors = ['div.ProductImage__image img', '.ProductImage__body img', '.Image__img']
                 for s in img_selectors:
                     loc = page.locator(s).first
                     if loc.count() > 0:
-                        i_src = loc.get_attribute('src')
-                        if i_src: img = i_src; break
+                        i_src = loc.get_attribute('src'); img = i_src; break
             else:
                 title = page.locator('h1').first.inner_text().strip()
                 img = page.locator('div[data-testid="image-0"] img, img[alt="product-image"]').first.get_attribute('src')
@@ -116,44 +119,50 @@ def get_web_data(url):
             return title, img
         except Exception as e:
             if 'browser' in locals(): browser.close()
-            return f"抓取失敗: {str(e)[:20]}", ""
+            return f"抓取失敗: {str(e)[:15]}", ""
 
 # --- 5. 介面渲染 ---
 init_db()
-st.title("🛡️ ヤフオク・メルカリ發送平台")
+st.title("🛡️ 拍賣發送平台")
 
-# --- 側邊欄：新增項目 ---
+# 側邊欄：新增與刪除
 with st.sidebar:
     st.header("➕ 新增項目")
-    input_id = st.text_input("輸入商品 ID (m... / Yahoo ID)")
+    input_id = st.text_input("輸入商品 ID")
     input_url_full = st.text_input("或 貼上完整連結")
     
     if st.button("執行抓取", use_container_width=True, type="primary"):
         final_url = ""
-        if input_id:
-            val = input_id.strip()
-            if val.startswith('m'):
-                final_url = f"https://jp.mercari.com/item/{val}"
-            elif (val[0].isalpha() or val[0].isdigit()) and len(val) >= 9:
-                final_url = f"https://auctions.yahoo.co.jp/jp/auction/{val}"
-            else:
-                final_url = f"https://jp.mercari.com/shops/product/{val}"
+        val = input_id.strip()
+        if val:
+            if val.startswith('m'): final_url = f"https://jp.mercari.com/item/{val}"
+            elif len(val) >= 9: final_url = f"https://auctions.yahoo.co.jp/jp/auction/{val}"
+            else: final_url = f"https://jp.mercari.com/shops/product/{val}"
         elif input_url_full:
             final_url = input_url_full.strip()
 
         if final_url:
-            with st.spinner(f"正在抓取: {final_url}"):
+            with st.spinner("抓取中..."):
                 t, img = get_web_data(final_url)
-                if img and "抓取失敗" not in t and t != "未知標題":
+                if img and "失敗" not in t:
                     with sqlite3.connect('mercari.db') as conn:
                         conn.execute("INSERT INTO items (title, url, img_url, note, price, local_img, local_img2, is_done) VALUES (?,?,?,?,?,?,?,0)",
-                                     (t, final_url, img, "請輸入備註...", "0", "", ""))
-                    st.success("抓取成功！")
+                                     (t, final_url, img, "備註...", "0", "", ""))
+                    st.success("成功！")
                     st.rerun()
-                else:
-                    st.error(f"抓取失敗。標題: {t}")
+                else: st.error(f"失敗: {t}")
 
-# --- 顯示列表 ---
+    st.divider()
+    st.header("⚙️ 系統管理")
+    if st.checkbox("開啟危險操作"):
+        if st.button("🗑️ 清空所有項目", use_container_width=True):
+            with sqlite3.connect('mercari.db') as conn:
+                conn.execute("DELETE FROM items")
+            for f in os.listdir(UPLOAD_DIR):
+                os.remove(os.path.join(UPLOAD_DIR, f))
+            st.rerun()
+
+# 顯示列表
 with sqlite3.connect('mercari.db') as conn:
     df = pd.read_sql_query("SELECT * FROM items ORDER BY is_done ASC, id DESC", conn)
 
@@ -161,62 +170,48 @@ for index, row in df.iterrows():
     with st.container(border=True):
         t_col1, t_col2 = st.columns([1, 4])
         with t_col1:
-            is_done_val = (row['is_done'] == 1)
-            check = st.checkbox("已完成", value=is_done_val, key=f"done_{row['id']}")
-            if check != is_done_val:
-                update_status(row['id'], 1 if check else 0)
-                st.rerun()
+            check = st.checkbox("完成", value=(row['is_done'] == 1), key=f"done_{row['id']}")
+            if check != (row['is_done'] == 1):
+                update_status(row['id'], 1 if check else 0); st.rerun()
         with t_col2:
-            if row['is_done'] == 1:
-                st.markdown(":gray[這筆資料已標記為完成]")
+            if row['is_done'] == 1: st.markdown(":gray[已標記為完成]")
 
-        col_img1, col_img2, col_info = st.columns([1.2, 1.2, 2.5])
+        c1, c2, c3 = st.columns([1.2, 1.2, 2.5])
         
-        with col_img1:
-            st.caption("主圖 (Image 1)")
-            img1_display = row['local_img'] if row['local_img'] and os.path.exists(row['local_img']) else row['img_url']
-            if img1_display:
-                st.image(img1_display, use_container_width=True)
-            
-            up1 = st.file_uploader("更換主圖", type=['jpg','png'], key=f"up1_{row['id']}")
-            if up1:
-                p1 = os.path.join(UPLOAD_DIR, f"m_{row['id']}.png")
-                with open(p1, "wb") as f: f.write(up1.getbuffer())
-                update_db_simple(row['id'], row['title'], row['note'], row['price'], img1=p1)
-                st.rerun()
+        with c1:
+            st.caption("主圖")
+            img_show = row['local_img'] if row['local_img'] and os.path.exists(row['local_img']) else row['img_url']
+            if img_show: st.image(img_show, use_container_width=True)
+            with st.expander("📷 更換"):
+                up1 = st.file_uploader("up1", type=['jpg','png'], key=f"up1_{row['id']}")
+                if up1:
+                    path = os.path.join(UPLOAD_DIR, f"m_{row['id']}.png")
+                    with open(path, "wb") as f: f.write(up1.getbuffer())
+                    update_db_simple(row['id'], row['title'], row['note'], row['price'], img1=path); st.rerun()
 
-        with col_img2:
-            st.caption("細節圖 (Image 2)")
+        with c2:
+            st.caption("細節圖")
             if row['local_img2'] and os.path.exists(row['local_img2']):
-                if st.button(f"🔍 點擊發貨", key=f"view_{row['id']}", use_container_width=True):
+                if st.button(f"🔍 放大圖", key=f"view_{row['id']}", use_container_width=True):
                     show_full_image(row['local_img2'])
-            else:
-                st.info("尚未上傳圖 2")
-            
-            up2 = st.file_uploader("上傳圖 2", type=['jpg','png'], key=f"up2_{row['id']}")
-            if up2:
-                p2 = os.path.join(UPLOAD_DIR, f"p_{row['id']}.png")
-                with open(p2, "wb") as f: f.write(up2.getbuffer())
-                update_db_simple(row['id'], row['title'], row['note'], row['price'], img2=p2)
-                st.rerun()
+            with st.expander("📷 上傳"):
+                up2 = st.file_uploader("up2", type=['jpg','png'], key=f"up2_{row['id']}")
+                if up2:
+                    path = os.path.join(UPLOAD_DIR, f"p_{row['id']}.png")
+                    with open(path, "wb") as f: f.write(up2.getbuffer())
+                    update_db_simple(row['id'], row['title'], row['note'], row['price'], img2=path); st.rerun()
 
-        with col_info:
-            new_title = st.text_input("商品名稱", value=row['title'], key=f"t_{row['id']}")
-            p_col, n_col = st.columns([1, 2])
-            with p_col:
-                new_price = st.text_input("Bar Code", value=row['price'], key=f"p_{row['id']}")
-            with n_col:
-                new_note = st.text_area("備註", value=row['note'], key=f"n_{row['id']}", height=100)
+        with c3:
+            new_t = st.text_input("名稱", value=row['title'], key=f"t_{row['id']}")
+            p_c, n_c = st.columns([1, 2])
+            with p_c: new_p = st.text_input("條碼", value=row['price'], key=f"p_{row['id']}")
+            with n_c: new_n = st.text_area("備註", value=row['note'], key=f"n_{row['id']}", height=68)
             
             b1, b2, b3 = st.columns(3)
             with b1:
-                if st.button("💾 儲存修改", key=f"save_{row['id']}", use_container_width=True, type="primary"):
-                    update_db_simple(row['id'], new_title, new_note, new_price)
-                    for k in [f"t_{row['id']}", f"p_{row['id']}", f"n_{row['id']}"]:
-                        if k in st.session_state: del st.session_state[k]
-                    st.rerun()
-            with b2:
-                st.link_button("🔗 原始網頁", row['url'], use_container_width=True)
+                if st.button("💾 儲存", key=f"s_{row['id']}", use_container_width=True, type="primary"):
+                    update_db_simple(row['id'], new_t, new_n, new_p); st.rerun()
+            with b2: st.link_button("🔗 網頁", row['url'], use_container_width=True)
             with b3:
                 if st.button("🗑️ 刪除", key=f"del_{row['id']}", use_container_width=True):
                     with sqlite3.connect('mercari.db') as conn:
