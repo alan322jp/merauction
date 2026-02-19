@@ -79,9 +79,6 @@ st.markdown("""
         font-size: 12px !important;
         color: #666;
     }
-    .st-emotion-cache-1frkdi4 h1｛
-            font-size: 20px !important;
-    ｝
     </style>
     """, unsafe_allow_html=True)
 
