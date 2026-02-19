@@ -117,36 +117,59 @@ init_db()
 st.title("ヤフオク・メルカリ發送平台")
 
 # --- 側邊欄：新增與全域管理 ---
+# --- 側邊欄：新增項目 (改為 Select 模式) ---
 with st.sidebar:
     st.header("➕ 新增項目")
-    input_id = st.text_input("輸入商品 ID (m... / Yahoo ID / Shops ID)")
-    input_url_full = st.text_input("或 貼上完整連結")
+    
+    # 1. 選擇平台類型
+    platform = st.selectbox(
+        "選擇平台類型",
+        ["Mercari 一般", "Yahoo 拍賣", "Mercari Shops"],
+        index=0
+    )
+    
+    # 2. 輸入純 ID
+    input_id = st.text_input("輸入商品 ID", placeholder="例如: m45936918194")
+    
+    # 3. 備用：直接貼連結 (保留此功能以防萬一)
+    input_url_full = st.text_input("或直接貼上完整連結", placeholder="https://...")
     
     if st.button("執行抓取", width='stretch', type="primary"):
         final_url = ""
-        if input_id:
-            val = input_id.strip()
-            if val.startswith('m'):
-                final_url = f"https://jp.mercari.com/item/{val}"
-            elif (val[0].isalpha() or val[0].isdigit()) and len(val) >= 9:
+        val = input_id.strip()
+        
+        if val:
+            # 根據選擇的平台組合網址
+            if platform == "Mercari 一般":
+                # 自動補全 m 字頭
+                item_id = val if val.startswith('m') else f"m{val}"
+                final_url = f"https://jp.mercari.com/item/{item_id}"
+            
+            elif platform == "Yahoo 拍賣":
+                # Yahoo ID 通常是字母數字組合，例如 r1220130745
                 final_url = f"https://auctions.yahoo.co.jp/jp/auction/{val}"
-            else:
-                # 這裡是你原始 Work 的關鍵邏輯：針對 Shops ID 的處理
+            
+            elif platform == "Mercari Shops":
+                # Shops ID 通常是一串亂碼，例如 2JHuzbFCcgRv8rLyUQhNM8
                 final_url = f"https://jp.mercari.com/shops/product/{val}"
+        
         elif input_url_full:
             final_url = input_url_full.strip()
 
         if final_url:
-            with st.spinner(f"正在抓取: {final_url}"):
+            with st.spinner(f"正在從 {platform} 抓取..."):
                 t, img = get_web_data(final_url)
                 if img and "抓取失敗" not in t and t != "未知標題":
                     with sqlite3.connect('mercari.db') as conn:
                         conn.execute("INSERT INTO items (title, url, img_url, note, price, local_img, local_img2, is_done) VALUES (?,?,?,?,?,?,?,0)",
                                      (t, final_url, img, "請輸入備註...", "0", "", ""))
-                    st.success("抓取成功！")
+                    st.success(f"成功抓取 {platform} 商品！")
                     st.rerun()
                 else:
                     st.error(f"抓取失敗。標題: {t}")
+
+    st.divider()
+    # ... (後續的系統管理按鈕)
 
     st.divider()
     st.header("⚙️ 系統管理")
