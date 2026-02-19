@@ -79,6 +79,11 @@ st.markdown("""
         font-size: 12px !important;
         color: #666;
     }
+    /* 標題字體大小設定為 20px */
+    h1 {
+        font-size: 20px !important;
+        font-weight: 600 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
