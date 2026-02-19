@@ -1,12 +1,30 @@
 import streamlit as st
-from playwright.sync_api import sync_playwright
 import sqlite3
 import pandas as pd
 import time
 import os
+import sys
 import subprocess
 
+# --- 0. 環境修復：強制安裝 Playwright 套件與瀏覽器 ---
+def ensure_playwright_installed():
+    try:
+        import playwright
+    except ImportError:
+        # 如果環境中找不到 playwright，強制現場安裝
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
+    
+    # 強制安裝 chromium 瀏覽器本體
+    # 使用 sys.executable 確保安裝在 Streamlit Cloud 當前的 Python 環境中
+    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
+
+# 啟動時先跑一次環境檢查
+ensure_playwright_installed()
+
+from playwright.sync_api import sync_playwright
+
 # --- 1. 初始化環境 ---
+# 直接在根目錄操作
 UPLOAD_DIR = "uploaded_images"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
@@ -15,6 +33,7 @@ st.set_page_config(layout="wide", page_title="ヤフオク・メルカリ發送�
 
 # --- 2. 資料庫核心功能 ---
 def init_db():
+    # 資料庫檔案現在位於根目錄下的 mercari.db
     with sqlite3.connect('mercari.db') as conn:
         conn.execute('''CREATE TABLE IF NOT EXISTS items 
                         (id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -46,17 +65,11 @@ def show_full_image(img_path):
     else:
         st.warning("⚠️ 此項目尚未上傳圖 2。")
 
-# --- 4. 深度優化爬蟲核心 (Streamlit Cloud 專用版) ---
+# --- 4. 深度優化爬蟲核心 (Linux 容器相容版) ---
 def get_web_data(url):
-    # 強制安裝瀏覽器 (解決雲端環境找不到瀏覽器的問題)
-    try:
-        subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True)
-    except Exception as e:
-        print(f"Browser install log: {e}")
-
     with sync_playwright() as p:
         try:
-            # 加入 Linux 容器專用啟動參數
+            # 必須加入這幾個 args，否則在 Streamlit Cloud 容器中會啟動失敗
             browser = p.chromium.launch(
                 headless=True,
                 args=[
@@ -140,13 +153,12 @@ with st.sidebar:
                 else:
                     st.error(f"抓取失敗。標題: {t}")
 
-# --- 顯示列表 (關鍵排序：未完成在前，已完成在後) ---
+# --- 顯示列表 ---
 with sqlite3.connect('mercari.db') as conn:
     df = pd.read_sql_query("SELECT * FROM items ORDER BY is_done ASC, id DESC", conn)
 
 for index, row in df.iterrows():
     with st.container(border=True):
-        # 頂部狀態列
         t_col1, t_col2 = st.columns([1, 4])
         with t_col1:
             is_done_val = (row['is_done'] == 1)
