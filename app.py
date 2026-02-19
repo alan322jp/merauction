@@ -25,11 +25,60 @@ if not os.path.exists(UPLOAD_DIR):
 st.set_page_config(layout="wide", page_title="ヤフオク・メルカリ發送平台")
 
 # CSS 注入：縮小上傳組件並隱藏標籤文字 (回應你的縮小需求)
+# --- CSS 注入：優化手機與電腦版面 ---
 st.markdown("""
     <style>
+    /* 1. 限制電腦版最大寬度，並讓內容居中 */
+    .block-container {
+        max-width: 1000px !important;
+        padding-top: 2rem !important;
+        padding-bottom: 2rem !important;
+    }
+
+    /* 2. 通用字體縮小 */
+    html, body, [class*="css"] {
+        font-size: 14px !important;
+    }
+
+    /* 3. 縮小上傳組件 (隱藏標籤並壓縮) */
     .stFileUploader label { display: none; }
-    .stFileUploader section { padding: 0px 5px !important; min-height: 40px !important; }
-    div[data-testid="stExpander"] { border: none !important; box-shadow: none !important; }
+    .stFileUploader section { 
+        padding: 0px 5px !important; 
+        min-height: 35px !important; 
+    }
+
+    /* 4. 針對手機尺寸 (螢幕寬度小於 768px) 的特殊調整 */
+    @media (max-width: 768px) {
+        .block-container {
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+        }
+        /* 讓文字更小以適應窄螢幕 */
+        p, span, label, input, textarea, button {
+            font-size: 12px !important;
+        }
+        /* 縮減容器內邊距 */
+        div[data-testid="stVerticalBlock"] {
+            gap: 0.5rem !important;
+        }
+        /* 讓按鈕高度降低 */
+        .stButton button {
+            padding: 0px 10px !important;
+            height: 30px !important;
+        }
+    }
+
+    /* 5. 隱藏 Expander 的框線讓視覺更乾淨 */
+    div[data-testid="stExpander"] { 
+        border: none !important; 
+        box-shadow: none !important; 
+        background-color: transparent !important;
+    }
+    .streamlit-expanderHeader {
+        padding: 0px !important;
+        font-size: 12px !important;
+        color: #666;
+    }
     </style>
     """, unsafe_allow_html=True)
 
