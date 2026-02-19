@@ -4,28 +4,27 @@ import sqlite3
 import pandas as pd
 import time
 import os
+import subprocess
 
 # --- 1. 初始化環境 ---
 UPLOAD_DIR = "uploaded_images"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
-st.set_page_config(layout="wide", page_title="Multi-Platform Manager")
+st.set_page_config(layout="wide", page_title="ヤフオク・メルカリ發送平台")
 
 # --- 2. 資料庫核心功能 ---
 def init_db():
     with sqlite3.connect('mercari.db') as conn:
-        # 建立表（包含 is_done）
         conn.execute('''CREATE TABLE IF NOT EXISTS items 
                         (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                          title TEXT, url TEXT, img_url TEXT, 
                          note TEXT, price TEXT, local_img TEXT, local_img2 TEXT,
                          is_done INTEGER DEFAULT 0)''')
-        # 額外檢查：如果舊表存在但沒 is_done 欄位，則手動增加
         try:
             conn.execute("ALTER TABLE items ADD COLUMN is_done INTEGER DEFAULT 0")
         except:
-            pass # 欄位已存在
+            pass 
 
 def update_db_simple(item_id, title, note, price, img1=None, img2=None):
     with sqlite3.connect('mercari.db') as conn:
@@ -35,7 +34,6 @@ def update_db_simple(item_id, title, note, price, img1=None, img2=None):
         conn.commit()
 
 def update_status(item_id, status):
-    """更新完成狀態"""
     with sqlite3.connect('mercari.db') as conn:
         conn.execute("UPDATE items SET is_done=? WHERE id=?", (status, item_id))
         conn.commit()
@@ -48,54 +46,26 @@ def show_full_image(img_path):
     else:
         st.warning("⚠️ 此項目尚未上傳圖 2。")
 
-# --- 4. 深度優化爬蟲核心 ---
+# --- 4. 深度優化爬蟲核心 (Streamlit Cloud 專用版) ---
 def get_web_data(url):
-    # --- 新增這段：自動下載瀏覽器核心 ---
-    import os
-    import subprocess
-    
-    # 確保環境變數路徑正確 (Streamlit Cloud 常用設定)
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0" 
-    
-    # 執行安裝指令
-    subprocess.run(["playwright", "install", "chromium"])
-    # ----------------------------------
-
-    with sync_playwright() as p:
-        # 加入 args 避開 sandbox 限制
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox"]
-        )
-        # ... 原有代碼 ...
-    
-def get_web_data(url):
-    import os
-    import subprocess
-    from playwright.sync_api import sync_playwright
-
-    # 1. 強制設定 Playwright 瀏覽器安裝路徑
-    # 這確保了 playwright install 的位置與 launch 尋找的位置一致
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/home/adminuser/playwright_browsers"
-
-    # 2. 檢查並自動安裝 Chromium (如果不存在才安裝，節省啟動時間)
-    if not os.path.exists(os.environ["PLAYWRIGHT_BROWSERS_PATH"]):
-        subprocess.run(["python", "-m", "playwright", "install", "chromium"])
-        subprocess.run(["python", "-m", "playwright", "install-deps"])
+    # 強制安裝瀏覽器 (解決雲端環境找不到瀏覽器的問題)
+    try:
+        subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True)
+    except Exception as e:
+        print(f"Browser install log: {e}")
 
     with sync_playwright() as p:
         try:
-            # 3. 啟動瀏覽器：必須加入 args 避開 Linux 權限限制
+            # 加入 Linux 容器專用啟動參數
             browser = p.chromium.launch(
                 headless=True,
                 args=[
-                    "--no-sandbox", 
-                    "--disable-setuid-sandbox", 
-                    "--disable-dev-shm-usage", # 防止記憶體不足
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
                     "--disable-gpu"
                 ]
             )
-            
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 locale="ja-JP",
@@ -103,7 +73,6 @@ def get_web_data(url):
             )
             page = context.new_page()
             
-            # --- 以下維持你原有的爬蟲邏輯 ---
             page.goto(url, wait_until="load", timeout=30000)
             time.sleep(3) 
             
@@ -129,23 +98,21 @@ def get_web_data(url):
             else:
                 title = page.locator('h1').first.inner_text().strip()
                 img = page.locator('div[data-testid="image-0"] img, img[alt="product-image"]').first.get_attribute('src')
-            
+                
             browser.close()
             return title, img
-
         except Exception as e:
-            if 'browser' in locals():
-                browser.close()
+            if 'browser' in locals(): browser.close()
             return f"抓取失敗: {str(e)[:20]}", ""
 
 # --- 5. 介面渲染 ---
 init_db()
-st.title("ヤフオク・メルカリ發送平台")
+st.title("🛡️ ヤフオク・メルカリ發送平台")
 
 # --- 側邊欄：新增項目 ---
 with st.sidebar:
     st.header("➕ 新增項目")
-    input_id = st.text_input("輸入商品 ID (m... / Yahoo ID / Shops ID)")
+    input_id = st.text_input("輸入商品 ID (m... / Yahoo ID)")
     input_url_full = st.text_input("或 貼上完整連結")
     
     if st.button("執行抓取", use_container_width=True, type="primary"):
@@ -178,9 +145,8 @@ with sqlite3.connect('mercari.db') as conn:
     df = pd.read_sql_query("SELECT * FROM items ORDER BY is_done ASC, id DESC", conn)
 
 for index, row in df.iterrows():
-    # 根據是否完成來顯示容器，已完成的可以加一點提示
     with st.container(border=True):
-        # 頂部狀態列：Checkbox
+        # 頂部狀態列
         t_col1, t_col2 = st.columns([1, 4])
         with t_col1:
             is_done_val = (row['is_done'] == 1)
