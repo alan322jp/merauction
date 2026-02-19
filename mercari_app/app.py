@@ -48,16 +48,13 @@ def show_full_image(img_path):
 
 # --- 4. 深度優化爬蟲核心 (Streamlit Cloud 專用版) ---
 def get_web_data(url):
-    import os
-    import subprocess
-    import sys
-    from playwright.sync_api import sync_playwright
-
-    # 確保瀏覽器已下載 (不包含 install-deps，因為雲端無 sudo 權限)
-    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
+    # 強制安裝瀏覽器 (解決雲端環境找不到瀏覽器的問題)
+    try:
+        subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True)
+    except Exception as e:
+        print(f"Browser install log: {e}")
 
     with sync_playwright() as p:
-        # ... 後續啟動 browser 的代碼 ...
         try:
             # 加入 Linux 容器專用啟動參數
             browser = p.chromium.launch(
