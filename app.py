@@ -123,7 +123,7 @@ def get_web_data(url):
 
 # --- 5. 介面渲染 ---
 init_db()
-st.title("🛡️ 拍賣發送平台")
+st.title("日本国內発送用")
 
 # 側邊欄：新增與刪除
 with st.sidebar:
@@ -154,7 +154,7 @@ with st.sidebar:
 
     st.divider()
     st.header("⚙️ 系統管理")
-    if st.checkbox("開啟危險操作"):
+    if st.checkbox("開啟管理員操作"):
         if st.button("🗑️ 清空所有項目", use_container_width=True):
             with sqlite3.connect('mercari.db') as conn:
                 conn.execute("DELETE FROM items")
@@ -170,7 +170,7 @@ for index, row in df.iterrows():
     with st.container(border=True):
         t_col1, t_col2 = st.columns([1, 4])
         with t_col1:
-            check = st.checkbox("完成", value=(row['is_done'] == 1), key=f"done_{row['id']}")
+            check = st.checkbox("已發貨", value=(row['is_done'] == 1), key=f"done_{row['id']}")
             if check != (row['is_done'] == 1):
                 update_status(row['id'], 1 if check else 0); st.rerun()
         with t_col2:
