@@ -190,7 +190,7 @@ for index, row in df.iterrows():
                     update_db_simple(row['id'], row['title'], row['note'], row['price'], img1=path); st.rerun()
 
         with c2:
-            st.caption("細節圖")
+            st.caption("發送用")
             if row['local_img2'] and os.path.exists(row['local_img2']):
                 if st.button(f"🔍 放大圖", key=f"view_{row['id']}", use_container_width=True):
                     show_full_image(row['local_img2'])
