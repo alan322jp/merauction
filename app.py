@@ -74,7 +74,7 @@ def update_status(item_id, status):
 @st.dialog("發貨細節圖")
 def show_full_image(img_path):
     if img_path and os.path.exists(img_path):
-        st.image(img_path, use_container_width=True)
+        st.image(img_path, width='stretch')
     else:
         st.warning("⚠️ 檔案不存在。")
 
@@ -123,7 +123,7 @@ def get_web_data(url):
 
 # --- 5. 介面渲染 ---
 init_db()
-st.title("日本国內発送用")
+st.title("🛡️ 拍賣發送平台")
 
 # 側邊欄：新增與刪除
 with st.sidebar:
@@ -131,7 +131,7 @@ with st.sidebar:
     input_id = st.text_input("輸入商品 ID")
     input_url_full = st.text_input("或 貼上完整連結")
     
-    if st.button("執行抓取", use_container_width=True, type="primary"):
+    if st.button("執行抓取", width='stretch', type="primary"):
         final_url = ""
         val = input_id.strip()
         if val:
@@ -154,8 +154,8 @@ with st.sidebar:
 
     st.divider()
     st.header("⚙️ 系統管理")
-    if st.checkbox("開啟管理員操作"):
-        if st.button("🗑️ 清空所有項目", use_container_width=True):
+    if st.checkbox("開啟危險操作"):
+        if st.button("🗑️ 清空所有項目", width='stretch'):
             with sqlite3.connect('mercari.db') as conn:
                 conn.execute("DELETE FROM items")
             for f in os.listdir(UPLOAD_DIR):
@@ -170,7 +170,7 @@ for index, row in df.iterrows():
     with st.container(border=True):
         t_col1, t_col2 = st.columns([1, 4])
         with t_col1:
-            check = st.checkbox("已發貨", value=(row['is_done'] == 1), key=f"done_{row['id']}")
+            check = st.checkbox("完成", value=(row['is_done'] == 1), key=f"done_{row['id']}")
             if check != (row['is_done'] == 1):
                 update_status(row['id'], 1 if check else 0); st.rerun()
         with t_col2:
@@ -181,7 +181,7 @@ for index, row in df.iterrows():
         with c1:
             st.caption("主圖")
             img_show = row['local_img'] if row['local_img'] and os.path.exists(row['local_img']) else row['img_url']
-            if img_show: st.image(img_show, use_container_width=True)
+            if img_show: st.image(img_show, width='stretch')
             with st.expander("📷 更換"):
                 up1 = st.file_uploader("up1", type=['jpg','png'], key=f"up1_{row['id']}")
                 if up1:
@@ -190,9 +190,9 @@ for index, row in df.iterrows():
                     update_db_simple(row['id'], row['title'], row['note'], row['price'], img1=path); st.rerun()
 
         with c2:
-            st.caption("發送用")
+            st.caption("細節圖")
             if row['local_img2'] and os.path.exists(row['local_img2']):
-                if st.button(f"🔍 放大圖", key=f"view_{row['id']}", use_container_width=True):
+                if st.button(f"🔍 放大圖", key=f"view_{row['id']}", width='stretch'):
                     show_full_image(row['local_img2'])
             with st.expander("📷 上傳"):
                 up2 = st.file_uploader("up2", type=['jpg','png'], key=f"up2_{row['id']}")
@@ -209,11 +209,11 @@ for index, row in df.iterrows():
             
             b1, b2, b3 = st.columns(3)
             with b1:
-                if st.button("💾 儲存", key=f"s_{row['id']}", use_container_width=True, type="primary"):
+                if st.button("💾 儲存", key=f"s_{row['id']}", width='stretch', type="primary"):
                     update_db_simple(row['id'], new_t, new_n, new_p); st.rerun()
-            with b2: st.link_button("🔗 網頁", row['url'], use_container_width=True)
+            with b2: st.link_button("🔗 網頁", row['url'], width='stretch')
             with b3:
-                if st.button("🗑️ 刪除", key=f"del_{row['id']}", use_container_width=True):
+                if st.button("🗑️ 刪除", key=f"del_{row['id']}", width='stretch'):
                     with sqlite3.connect('mercari.db') as conn:
                         conn.execute("DELETE FROM items WHERE id=?", (row['id'],))
                     st.rerun()
