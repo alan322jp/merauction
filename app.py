@@ -6,17 +6,25 @@ import os
 import sys
 import subprocess
 
-# --- 0. 環境檢查 (針對 Streamlit Cloud 優化版) ---
+# --- 0. 環境檢查 (強制補齊系統組件版) ---
 def ensure_playwright_installed():
-    # 檢查瀏覽器是否已安裝在快取目錄
-    playwright_path = os.path.expanduser("~/.cache/ms-playwright")
-    if not os.path.exists(playwright_path):
-        with st.spinner("首次運行，正在安裝雲端瀏覽器環境 (約需 1 分鐘)..."):
+    # 檢查是否已有瀏覽器
+    if not os.path.exists(os.path.expanduser("~/.cache/ms-playwright")):
+        with st.spinner("首次運行，正在安裝系統底層組件 (約需 1-2 分鐘)..."):
             try:
-                # 安裝 chromium 瀏覽器本體
+                # 1. 安裝 playwright python 套件
+                subprocess.run([sys.executable, "-m", "pip", "install", "playwright"], check=True)
+                # 2. 安裝 chromium 瀏覽器本體
                 subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+                # 3. 強制安裝 Linux 系統缺失的依賴庫 (解決 BrowserType.launch 錯誤的核心)
+                # 注意：這一步在 Streamlit Cloud 需要一點時間
+                subprocess.run([sys.executable, "-m", "playwright", "install-deps", "chromium"], check=True)
+                st.success("系統環境初始化完成！")
             except Exception as e:
-                st.error(f"瀏覽器安裝失敗: {e}")
+                st.error(f"環境初始化出錯: {e}")
+                st.info("請嘗試在右下角 'Manage app' 中選擇 'Reboot App'")
+
+ensure_playwright_installed()
 
 # 執行環境檢查
 ensure_playwright_installed()
