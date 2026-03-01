@@ -3,23 +3,39 @@ import sys
 import os
 import subprocess
 
-# --- 0. 環境檢查 (精確路徑 + 快取保護版) ---
+# --- 0. 環境檢查與修復 ---
 @st.cache_resource
-def ensure_playwright_installed():
+def ensure_environment_is_ready():
+    # 1. 確保 Playwright 瀏覽器已安裝
     try:
-        # 使用 sys.executable 確保指向當前的 Python 3.13 環境
-        # 增加 --with-deps 嘗試一併補齊可能缺失的系統庫
+        # 使用 sys.executable 確保指向 Python 3.13 虛擬環境
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-        return True
     except Exception as e:
-        st.error(f"瀏覽器初始化失敗，請嘗試 Reboot App。錯誤: {e}")
+        st.error(f"瀏覽器初始化失敗: {e}")
         return False
+    
+    # 2. 檢查並嘗試手動補裝 supabase (預防萬一)
+    try:
+        from supabase import create_client, Client
+    except ImportError:
+        subprocess.run([sys.executable, "-m", "pip", "install", "supabase"], check=True)
+    
+    return True
 
-# 執行檢查
-is_ready = ensure_playwright_installed()
+# 執行檢查，失敗則停止
+if not ensure_environment_is_ready():
+    st.stop()
 
-# 如果環境沒準備好，就停止執行後續程式碼，避免反覆噴錯
-if not is_ready:
+# --- 1. 現在可以安全地導入並初始化了 ---
+from supabase import create_client, Client
+
+# 從 Secrets 讀取設定
+try:
+    url: str = st.secrets["supabase_url"]
+    key: str = st.secrets["supabase_key"]
+    supabase: Client = create_client(url, key)
+except KeyError:
+    st.error("請在 Streamlit Secrets 中設定 supabase_url 和 supabase_key")
     st.stop()
 
 # --- 1. 連接 Supabase 與後續邏輯 ---
