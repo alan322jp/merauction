@@ -7,13 +7,17 @@ import os
 import sys
 import subprocess
 
-# --- 0. 環境檢查 (Playwright 驅動) ---
+# --- 0. 環境檢查 ---
 def ensure_playwright_installed():
     try:
+        # 檢查 playwright 是否已安裝
         import playwright
     except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
-    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
+    
+    # 這是關鍵：安裝 chromium 瀏覽器本體
+    # 加上 --with-deps 確保 Linux 系統缺少的依賴庫也會被補齊
+    subprocess.run(["playwright", "install", "chromium", "--with-deps"])
 
 ensure_playwright_installed()
 
