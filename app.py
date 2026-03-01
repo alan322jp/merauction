@@ -7,17 +7,23 @@ import sys
 import subprocess
 
 # --- 0. 環境強制修復 ---
+# --- 0. 環境檢查 (終極修復路徑版) ---
 def ensure_playwright_installed():
-    # 強制安裝並補齊依賴 (雖然 install-deps 在無 sudo 下受限，但 install chromium --with-deps 有時能繞過)
-    try:
-        import playwright
-    except ImportError:
-        subprocess.run([sys.executable, "-m", "pip", "install", "playwright"])
+    # 強制設定環境變數，讓 Playwright 知道要把瀏覽器裝哪裡
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0" 
     
-    # 檢查快取夾是否存在
-    if not os.path.exists(os.path.expanduser("~/.cache/ms-playwright")):
-        with st.spinner("正在部署雲端瀏覽器環境 (這可能需要 1-2 分鐘)..."):
-            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium", "--with-deps"])
+    # 檢查快取目錄是否已有檔案 (chromium 是我們需要的)
+    playwright_path = os.path.expanduser("~/.cache/ms-playwright")
+    
+    # 如果目錄不存在或裡面沒有 chromium，就執行安裝
+    if not os.path.exists(playwright_path) or "chromium" not in str(os.listdir(playwright_path) if os.path.exists(playwright_path) else []):
+        with st.spinner("正在下載瀏覽器內核 (僅需執行一次)..."):
+            try:
+                # 安裝 chromium
+                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+                st.success("瀏覽器內核下載成功！")
+            except Exception as e:
+                st.error(f"下載失敗: {e}")
 
 ensure_playwright_installed()
 
