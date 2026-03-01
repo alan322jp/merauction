@@ -7,22 +7,14 @@ import os
 import sys
 import subprocess
 
-# --- 0. 環境檢查 (最強修正版) ---
+# --- 0. 環境檢查 ---
 def ensure_playwright_installed():
-    # 1. 確保套件已安裝
-    try:
-        import playwright
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
-    
-    # 2. 檢查是否已經安裝過瀏覽器，避免每次啟動都重複安裝耗時
+    # 檢查是否已安裝過瀏覽器，避免每次啟動重複安裝
     if not os.path.exists(os.path.expanduser("~/.cache/ms-playwright")):
-        with st.spinner("首次運行，正在初始化雲端瀏覽器環境 (約需 1-2 分鐘)..."):
-            # 安裝 chromium 本體
+        with st.spinner("首次運行，正在安裝瀏覽器元件..."):
+            # 只安裝 chromium 本體即可，系統依賴由 packages.txt 處理
             subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
-            # 重要：安裝 Linux 系統所需的依賴庫 (解決 BrowserType.launch 錯誤關鍵)
-            subprocess.run([sys.executable, "-m", "playwright", "install-deps"])
-            st.success("環境初始化完成！")
+            st.success("瀏覽器安裝完成！")
 
 ensure_playwright_installed()
 
@@ -77,14 +69,14 @@ def upload_to_storage(file, file_name):
     return supabase.storage.from_(bucket_name).get_public_url(file_name)
 
 def get_web_data(url):
-    """強化版網頁抓取"""
     with sync_playwright() as p:
         try:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu"])
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                locale="ja-JP"
+            # 確保有 --no-sandbox
+            browser = p.chromium.launch(
+                headless=True, 
+                args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
             )
+            # ... 後續程式碼不變
             page = context.new_page()
             
             # 針對 Shops 或普通頁面設定等待
