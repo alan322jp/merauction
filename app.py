@@ -37,59 +37,64 @@ def get_web_data(target_url):
     with sync_playwright() as p:
         browser = None
         try:
-            # 1. 偽裝真人啟動參數
+            # 1. 偽裝真人參數
             browser = p.chromium.launch(
                 headless=True,
                 args=[
                     "--no-sandbox",
                     "--disable-blink-features=AutomationControlled", # 隱藏自動化標記
-                    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
                 ]
             )
-            context = browser.new_context()
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            )
             page = context.new_page()
             
-            # 2. 延長超時並模擬真人等待
-            # 使用 'domcontentloaded' 縮短等待 HTML 的時間，但後續用 sleep 等待 JS
+            # 2. 導向網址並等待初步加載
+            # 日拍廣告多，我們只等 DOM 載入就好
             page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
             
             # 拿到初步標題 (這步你之前已經成功了)
             raw_title = page.title()
-            
-            # 等待 4 秒讓日本拍賣的動態圖片跑出來
-            time.sleep(4) 
 
-            # 3. 多重嘗試抓取標題 (有些網站標題在 h1)
+            # --- 關鍵動作：模擬真人捲動，強迫圖片加載 ---
+            page.evaluate("window.scrollTo(0, 500)") 
+            time.sleep(3) # 給予 3 秒讓圖片跑出來
+
+            # 3. 嘗試更精準的標題 (Yahoo 拍賣通常在 h1.ProductTitle__text)
             final_title = raw_title
-            h1_selector = page.locator("h1").first
-            if h1_selector.count() > 0:
-                h1_text = h1_selector.inner_text().strip()
-                if h1_text:
-                    final_title = h1_text
+            title_selectors = ["h1", ".ProductTitle__text", ".item_name"]
+            for s in title_selectors:
+                el = page.locator(s).first
+                if el.count() > 0:
+                    text = el.inner_text().strip()
+                    if text:
+                        final_title = text
+                        break
 
-            # 4. 針對日拍 (Yahoo/Mercari) 的圖片選擇器清單
+            # 4. 針對日拍的圖片選擇器清單
             img_src = ""
-            selectors = [
-                "div.ProductImage__image img", # Yahoo Auction
-                "img[data-testid='image-0']",   # Mercari
-                "figure img",                   # 一般拍賣
-                "div.Carousel__item img"        # 其他
+            img_selectors = [
+                ".ProductImage__image img",       # Yahoo Auction
+                "img[data-testid='image-0']",      # Mercari
+                ".slick-active img",               # 輪播圖
+                "div[class*='Image'] img"          # 通用類名
             ]
             
-            for selector in selectors:
-                img_node = page.locator(selector).first
+            for s in img_selectors:
+                img_node = page.locator(s).first
                 if img_node.count() > 0:
                     img_src = img_node.get_attribute("src")
                     if img_src: break
 
-            # 5. 回傳結果 (只要有標題，就不報失敗)
+            # 5. 回傳結果：只要有標題，就不報失敗
             return final_title, img_src
 
         except Exception as e:
-            # 即使失敗，如果已經拿到 raw_title，就回傳它，不要讓 UI 顯示抓取失敗
+            # 即使出錯，如果已經拿到標題，就回傳它
             if 'raw_title' in locals() and raw_title:
                 return raw_title, ""
-            return f"連線不穩: {str(e)[:50]}", ""
+            return f"連線異常: {str(e)[:30]}", ""
         finally:
             if browser:
                 browser.close()
