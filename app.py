@@ -6,21 +6,16 @@ import os
 import sys
 import subprocess
 
-# --- 0. 環境檢查 (Streamlit 官方推薦穩定版) ---
+# --- 0. 環境檢查 (避開權限衝突版) ---
 def ensure_playwright_installed():
-    try:
-        import playwright
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
+    playwright_path = os.path.expanduser("~/.cache/ms-playwright")
+    # 只要 chromium 沒裝好，就跑安裝
+    if not os.path.exists(playwright_path) or not os.listdir(playwright_path):
+        with st.spinner("正在初始化瀏覽器環境 (約 30 秒)..."):
+            # 使用系統路徑直接調用 playwright
+            subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True)
 
-    # 檢查核心執行檔是否存在（不依賴環境變數，直接找預設路徑）
-    # 如果找不到，就重新安裝
-    playwright_check = subprocess.run(["playwright", "install", "chromium"], capture_output=True)
-    if playwright_check.returncode != 0:
-        with st.spinner("正在初始化雲端瀏覽器..."):
-            # 使用 --with-deps 的精簡安裝
-            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-
+# 放到 App 開始的位置
 ensure_playwright_installed()
 
 # --- 1. 連接 Supabase (請確保 Secrets 已填寫) ---
