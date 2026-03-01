@@ -1,3 +1,4 @@
 streamlit
-playwright==1.49.0
+supabase
+playwright
 pandas
