@@ -6,78 +6,32 @@ import os
 import sys
 import subprocess
 
-# --- 0. 環境檢查 (精簡穩定版) ---
+# --- 0. 環境強制修復 ---
 def ensure_playwright_installed():
-    playwright_path = os.path.expanduser("~/.cache/ms-playwright")
-    if not os.path.exists(playwright_path):
-        with st.spinner("正在安裝雲端瀏覽器..."):
-            try:
-                # 只安裝瀏覽器本體，不要跑 install-deps (會權限報錯)
-                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-            except Exception as e:
-                st.error(f"瀏覽器安裝失敗: {e}")
+    # 強制安裝並補齊依賴 (雖然 install-deps 在無 sudo 下受限，但 install chromium --with-deps 有時能繞過)
+    try:
+        import playwright
+    except ImportError:
+        subprocess.run([sys.executable, "-m", "pip", "install", "playwright"])
+    
+    # 檢查快取夾是否存在
+    if not os.path.exists(os.path.expanduser("~/.cache/ms-playwright")):
+        with st.spinner("正在部署雲端瀏覽器環境 (這可能需要 1-2 分鐘)..."):
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium", "--with-deps"])
 
 ensure_playwright_installed()
 
-# --- 接下來是連接 Supabase 的代碼 ---
-# ... (之後的代碼保持不變，確保 launch 參數包含 --no-sandbox)
-
-ensure_playwright_installed()
-
-# --- 1. 初始化 Supabase 連接 ---
-# 請確保已在 Streamlit Secrets 設定 supabase_url 與 supabase_key
+# --- 1. 連接 Supabase (請確保 Secrets 已填寫) ---
 url: str = st.secrets["supabase_url"]
 key: str = st.secrets["supabase_key"]
 supabase: Client = create_client(url, key)
 
-# --- 2. CSS 注入：20px 標題與手機適配 ---
-st.set_page_config(layout="wide", page_title="ヤフオク・メルカリ發送平台")
-
-st.markdown("""
-    <style>
-    /* 全域限寬與居中 */
-    .block-container {
-        max-width: 1000px !important;
-        padding-top: 1.5rem !important;
-    }
-
-    /* 標題設定：20px */
-    h1 {
-        font-size: 20px !important;
-        font-weight: 600 !important;
-        color: #31333F;
-    }
-
-    /* 字體微調與縮小上傳組件 */
-    html, body, [class*="css"] { font-size: 14px !important; }
-    .stFileUploader label { display: none; }
-    .stFileUploader section { padding: 0px 5px !important; min-height: 35px !important; }
-
-    /* 手機版適配 (寬度小於 768px) */
-    @media (max-width: 768px) {
-        .block-container { padding-left: 0.5rem !important; padding-right: 0.5rem !important; }
-        p, span, label, input, textarea, button { font-size: 12px !important; }
-        div[data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
-        .stButton button { height: 32px !important; padding: 0px !important; }
-    }
-
-    /* 乾淨的 Expander 樣式 */
-    div[data-testid="stExpander"] { border: none !important; box-shadow: none !important; }
-    .streamlit-expanderHeader { padding: 0px !important; font-size: 12px !important; color: #666; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 3. 核心功能函數 ---
-def upload_to_storage(file, file_name):
-    """將圖片上傳至 Supabase Storage Bucket"""
-    bucket_name = "product_images" # 請確保 Supabase 已建立此 Public Bucket
-    supabase.storage.from_(bucket_name).upload(file_name, file.getvalue(), {"content-type": file.type})
-    return supabase.storage.from_(bucket_name).get_public_url(file_name)
-
+# --- 2. 抓取函數 (極致相容模式) ---
 def get_web_data(url):
     with sync_playwright() as p:
+        browser = None
         try:
-            # 這是針對 Streamlit Cloud 最強大的啟動參數
+            # 這是針對 Streamlit Cloud 的終極啟動參數
             browser = p.chromium.launch(
                 headless=True,
                 args=[
@@ -85,43 +39,40 @@ def get_web_data(url):
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
-                    "--no-first-run",
                     "--no-zygote",
-                    "--single-process", # 關鍵：強制單進程運行
-                ],
+                    "--single-process",  # 在小內存環境極端重要
+                ]
             )
-            # ... 後續邏輯
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            )
             page = context.new_page()
             
-            # 針對 Shops 或普通頁面設定等待
-            page.goto(url, wait_until="load", timeout=35000)
-            time.sleep(3) 
+            # 針對 Shops 加強載入邏輯
+            page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            time.sleep(5) # 額外給予 JavaScript 渲染時間
 
-            title = "未知標題"
+            # 抓取標題與圖片
+            title = page.title() # 備用方案：先抓網頁 Title
+            h1 = page.locator("h1").first
+            if h1.count() > 0:
+                title = h1.inner_text().strip()
+            
             img = ""
+            # 優先找主要商品圖
+            img_loc = page.locator('img[alt="product-image"], div[data-testid="image-0"] img, .ProductImage__image img').first
+            if img_loc.count() > 0:
+                img = img_loc.get_attribute("src")
 
-            # 標題選擇器 (相容各平台)
-            t_selectors = ['h1[data-testid="product-name"]', 'h1.Title__text', 'h1.ProductTitle__text', '.ProductTitle__title', 'h1']
-            for s in t_selectors:
-                loc = page.locator(s).first
-                if loc.count() > 0:
-                    t_text = loc.inner_text().strip()
-                    if t_text: title = t_text; break
-
-            # 圖片選擇器 (相容各平台)
-            i_selectors = ['div[data-testid="image-0"] img', 'div.ProductImage__image img', 'img[alt="product-image"]', 'div[data-index="0"] img']
-            for s in i_selectors:
-                loc = page.locator(s).first
-                if loc.count() > 0:
-                    i_src = loc.get_attribute('src')
-                    if i_src: img = i_src; break
-
-            browser.close()
             return title, img
-        except Exception as e:
-            if 'browser' in locals(): browser.close()
-            return f"抓取失敗: {str(e)[:15]}", ""
 
+        except Exception as e:
+            return f"瀏覽器啟動失敗: {str(e)}", ""
+        finally:
+            if browser:
+                browser.close()
+
+# ... 這裡接你之前的介面渲染程式碼 ...
 # --- 4. 主介面：側邊欄 ---
 st.title("ヤフオク・メルカリ發送平台")
 
