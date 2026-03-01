@@ -37,64 +37,57 @@ def get_web_data(target_url):
     with sync_playwright() as p:
         browser = None
         try:
-            # 1. 偽裝真人參數
+            # 1. 真人モードで起動（ヤフオクのブロックを回避）
             browser = p.chromium.launch(
                 headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-blink-features=AutomationControlled", # 隱藏自動化標記
-                ]
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
             )
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
             )
             page = context.new_page()
             
-            # 2. 導向網址並等待初步加載
-            # 日拍廣告多，我們只等 DOM 載入就好
+            # 2. ページ読み込み（ヤフオクは重いためタイムアウトを長めに設定）
             page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
             
-            # 拿到初步標題 (這步你之前已經成功了)
-            raw_title = page.title()
+            # まずはタイトルを確保
+            raw_title = page.title().replace(" - Yahoo!オークション", "").strip()
+            
+            # 3. 画像が出るまで少し待機 & スクロール（ヤフオクの遅延読み込み対策）
+            time.sleep(3)
+            page.evaluate("window.scrollTo(0, 300)")
 
-            # --- 關鍵動作：模擬真人捲動，強迫圖片加載 ---
-            page.evaluate("window.scrollTo(0, 500)") 
-            time.sleep(3) # 給予 3 秒讓圖片跑出來
-
-            # 3. 嘗試更精準的標題 (Yahoo 拍賣通常在 h1.ProductTitle__text)
-            final_title = raw_title
-            title_selectors = ["h1", ".ProductTitle__text", ".item_name"]
-            for s in title_selectors:
-                el = page.locator(s).first
-                if el.count() > 0:
-                    text = el.inner_text().strip()
-                    if text:
-                        final_title = text
-                        break
-
-            # 4. 針對日拍的圖片選擇器清單
+            # 4. ヤフオク専用の画像セレクター（優先順位順）
             img_src = ""
-            img_selectors = [
-                ".ProductImage__image img",       # Yahoo Auction
-                "img[data-testid='image-0']",      # Mercari
-                ".slick-active img",               # 輪播圖
-                "div[class*='Image'] img"          # 通用類名
+            # ヤフオクのメイン画像が入るクラスを複数指定
+            yahoo_selectors = [
+                "div.ProductImage__image img", 
+                "div.ProductImage__inner img",
+                "img.ProductImage__img",
+                "div.Carousel__item img"
             ]
             
-            for s in img_selectors:
-                img_node = page.locator(s).first
+            for selector in yahoo_selectors:
+                img_node = page.locator(selector).first
                 if img_node.count() > 0:
-                    img_src = img_node.get_attribute("src")
-                    if img_src: break
+                    src = img_node.get_attribute("src")
+                    if src:
+                        img_src = src
+                        break
 
-            # 5. 回傳結果：只要有標題，就不報失敗
-            return final_title, img_src
+            # 5. もしタイトルが「Yahoo!オークション」だけなら、h1から再取得
+            if "Yahoo!" in raw_title and len(raw_title) < 15:
+                h1 = page.locator("h1.ProductTitle__text").first
+                if h1.count() > 0:
+                    raw_title = h1.inner_text().strip()
+
+            return raw_title, img_src
 
         except Exception as e:
-            # 即使出錯，如果已經拿到標題，就回傳它
+            # 途中でエラーが起きても、タイトルが取れていればそれを返す
             if 'raw_title' in locals() and raw_title:
                 return raw_title, ""
-            return f"連線異常: {str(e)[:30]}", ""
+            return f"接続エラー: {str(e)[:30]}", ""
         finally:
             if browser:
                 browser.close()
