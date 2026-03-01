@@ -8,22 +8,27 @@ import subprocess
 
 # --- 0. 環境強制修復 ---
 # --- 0. 環境檢查 (終極修復路徑版) ---
+# --- 0. 環境檢查 (本地路徑強制安裝版) ---
 def ensure_playwright_installed():
-    # 強制設定環境變數，讓 Playwright 知道要把瀏覽器裝哪裡
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0" 
+    # 1. 強制讓 Playwright 將瀏覽器安裝在當前 App 目錄下的一個資料夾內
+    # 這樣可以避免 /home/appuser/.cache 的權限問題
+    local_playwright_path = os.path.join(os.getcwd(), "playwright_browsers")
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = local_playwright_path
     
-    # 檢查快取目錄是否已有檔案 (chromium 是我們需要的)
-    playwright_path = os.path.expanduser("~/.cache/ms-playwright")
-    
-    # 如果目錄不存在或裡面沒有 chromium，就執行安裝
-    if not os.path.exists(playwright_path) or "chromium" not in str(os.listdir(playwright_path) if os.path.exists(playwright_path) else []):
-        with st.spinner("正在下載瀏覽器內核 (僅需執行一次)..."):
+    # 2. 檢查是否已經下載過
+    if not os.path.exists(local_playwright_path):
+        with st.spinner("正在將瀏覽器安裝至 App 本地目錄 (預計 1 分鐘)..."):
             try:
-                # 安裝 chromium
-                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-                st.success("瀏覽器內核下載成功！")
-            except Exception as e:
-                st.error(f"下載失敗: {e}")
+                # 執行安裝，不加 sudo，直接指定 chromium
+                subprocess.run([
+                    sys.executable, "-m", "playwright", "install", "chromium"
+                ], env=os.environ, check=True)
+                st.success("瀏覽器安裝完成！")
+            except subprocess.CalledProcessError as e:
+                st.error(f"安裝失敗，狀態碼: {e.returncode}")
+                # 嘗試另一種安裝方式作為備援
+                st.info("嘗試備援安裝模式...")
+                subprocess.run(["playwright", "install", "chromium"], env=os.environ)
 
 ensure_playwright_installed()
 
