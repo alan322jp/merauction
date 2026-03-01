@@ -87,10 +87,15 @@ def upload_to_storage(file, file_name):
 def get_web_data(url):
     with sync_playwright() as p:
         try:
-            # 確保有 --no-sandbox
+            # 這些 args 是在雲端運行的「救命稻草」
             browser = p.chromium.launch(
                 headless=True, 
-                args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
+                args=[
+                    "--no-sandbox", 
+                    "--disable-gpu", 
+                    "--disable-dev-shm-usage", # 防止記憶體不足
+                    "--single-process"         # 在某些容器中更穩定
+                ]
             )
             # ... 後續程式碼不變
             page = context.new_page()
