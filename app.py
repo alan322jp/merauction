@@ -6,29 +6,20 @@ import os
 import sys
 import subprocess
 
-# --- 0. 環境強制修復 ---
-# --- 0. 環境檢查 (終極修復路徑版) ---
-# --- 0. 環境檢查 (本地路徑強制安裝版) ---
+# --- 0. 環境檢查 (Streamlit 官方推薦穩定版) ---
 def ensure_playwright_installed():
-    # 1. 強制讓 Playwright 將瀏覽器安裝在當前 App 目錄下的一個資料夾內
-    # 這樣可以避免 /home/appuser/.cache 的權限問題
-    local_playwright_path = os.path.join(os.getcwd(), "playwright_browsers")
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = local_playwright_path
-    
-    # 2. 檢查是否已經下載過
-    if not os.path.exists(local_playwright_path):
-        with st.spinner("正在將瀏覽器安裝至 App 本地目錄 (預計 1 分鐘)..."):
-            try:
-                # 執行安裝，不加 sudo，直接指定 chromium
-                subprocess.run([
-                    sys.executable, "-m", "playwright", "install", "chromium"
-                ], env=os.environ, check=True)
-                st.success("瀏覽器安裝完成！")
-            except subprocess.CalledProcessError as e:
-                st.error(f"安裝失敗，狀態碼: {e.returncode}")
-                # 嘗試另一種安裝方式作為備援
-                st.info("嘗試備援安裝模式...")
-                subprocess.run(["playwright", "install", "chromium"], env=os.environ)
+    try:
+        import playwright
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
+
+    # 檢查核心執行檔是否存在（不依賴環境變數，直接找預設路徑）
+    # 如果找不到，就重新安裝
+    playwright_check = subprocess.run(["playwright", "install", "chromium"], capture_output=True)
+    if playwright_check.returncode != 0:
+        with st.spinner("正在初始化雲端瀏覽器..."):
+            # 使用 --with-deps 的精簡安裝
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
 
 ensure_playwright_installed()
 
