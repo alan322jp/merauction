@@ -77,17 +77,20 @@ def upload_to_storage(file, file_name):
 def get_web_data(url):
     with sync_playwright() as p:
         try:
-            # 這些 args 是在雲端運行的「救命稻草」
+            # 這是針對 Streamlit Cloud 最強大的啟動參數
             browser = p.chromium.launch(
-                headless=True, 
+                headless=True,
                 args=[
-                    "--no-sandbox", 
-                    "--disable-gpu", 
-                    "--disable-dev-shm-usage", # 防止記憶體不足
-                    "--single-process"         # 在某些容器中更穩定
-                ]
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--no-first-run",
+                    "--no-zygote",
+                    "--single-process", # 關鍵：強制單進程運行
+                ],
             )
-            # ... 後續程式碼不變
+            # ... 後續邏輯
             page = context.new_page()
             
             # 針對 Shops 或普通頁面設定等待
