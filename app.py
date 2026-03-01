@@ -34,30 +34,52 @@ except Exception as e:
 
 # --- 3. 抓取函數 (修正 NameError 的核心) ---
 def get_web_data(target_url):
-    # 因為頂部已經正確 import，這裡 sync_playwright 就不會報 NameError
     with sync_playwright() as p:
         browser = None
         try:
+            # 1. 增加啟動參數：偽裝成一般瀏覽器
             browser = p.chromium.launch(
                 headless=True,
-                args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--single-process"]
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
             )
             context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                viewport={'width': 1280, 'height': 800}
             )
             page = context.new_page()
-            page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
-            time.sleep(2)
             
+            # 2. 針對日拍設定較長的超時與等待
+            # 使用 commit 模式避免因某些廣告加載慢而超時
+            page.goto(target_url, wait_until="commit", timeout=60000)
+            
+            # 額外停留 5 秒，等待日拍的 JavaScript 渲染完成
+            time.sleep(5) 
+
+            # 3. 嘗試抓取標題 (如果標題已經有了，可以用 .title() 或是選擇器)
             title = page.title()
+            
+            # 4. 針對日拍常見的圖片選擇器進行精準定位
             img_src = ""
-            # 嘗試抓取第一張圖片
-            img_element = page.locator("img").first
-            if img_element.count() > 0:
-                img_src = img_element.get_attribute("src")
-                
+            # Mercari/Yahoo 常用選擇器組合
+            img_selectors = [
+                'img[alt="product-image"]', 
+                'div[data-testid="image-0"] img', 
+                '.ProductImage__image img',
+                'figure img'
+            ]
+            
+            for selector in img_selectors:
+                img_loc = page.locator(selector).first
+                if img_loc.count() > 0:
+                    img_src = img_loc.get_attribute("src")
+                    if img_src: break
+            
             return title, img_src
+
         except Exception as e:
+            # 如果已經抓到標題，就算圖片失敗也回傳標題
+            if 'title' in locals() and title:
+                return title, ""
             return f"抓取失敗: {str(e)}", ""
         finally:
             if browser:
