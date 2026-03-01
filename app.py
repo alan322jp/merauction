@@ -1,43 +1,91 @@
 import streamlit as st
-import sys
 import os
+import sys
 import subprocess
+import time
 
-# --- 0. 環境檢查與修復 ---
+# --- 0. 環境強制初始化 (解決 BrowserType.launch 與路徑問題) ---
 @st.cache_resource
 def ensure_environment_is_ready():
-    # 1. 確保 Playwright 瀏覽器已安裝
     try:
         # 使用 sys.executable 確保指向 Python 3.13 虛擬環境
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        return True
     except Exception as e:
-        st.error(f"瀏覽器初始化失敗: {e}")
+        st.error(f"瀏覽器環境初始化失敗: {e}")
         return False
-    
-    # 2. 檢查並嘗試手動補裝 supabase (預防萬一)
-    try:
-        from supabase import create_client, Client
-    except ImportError:
-        subprocess.run([sys.executable, "-m", "pip", "install", "supabase"], check=True)
-    
-    return True
 
-# 執行檢查，失敗則停止
+# 啟動時先跑安裝
 if not ensure_environment_is_ready():
     st.stop()
 
-# --- 1. 現在可以安全地導入並初始化了 ---
+# --- 1. 安全導入套件 (確保安裝完後才 Import) ---
+from playwright.sync_api import sync_playwright
 from supabase import create_client, Client
 
-# 從 Secrets 讀取設定
+# --- 2. 初始化 Supabase ---
 try:
     url: str = st.secrets["supabase_url"]
     key: str = st.secrets["supabase_key"]
     supabase: Client = create_client(url, key)
-except KeyError:
-    st.error("請在 Streamlit Secrets 中設定 supabase_url 和 supabase_key")
+except Exception as e:
+    st.error(f"Supabase 連接失敗，請檢查 Secrets: {e}")
     st.stop()
 
+# --- 3. 抓取函數 (修正 NameError 的核心) ---
+def get_web_data(target_url):
+    # 因為頂部已經正確 import，這裡 sync_playwright 就不會報 NameError
+    with sync_playwright() as p:
+        browser = None
+        try:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--single-process"]
+            )
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            )
+            page = context.new_page()
+            page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+            time.sleep(2)
+            
+            title = page.title()
+            img_src = ""
+            # 嘗試抓取第一張圖片
+            img_element = page.locator("img").first
+            if img_element.count() > 0:
+                img_src = img_element.get_attribute("src")
+                
+            return title, img_src
+        except Exception as e:
+            return f"抓取失敗: {str(e)}", ""
+        finally:
+            if browser:
+                browser.close()
+
+# --- 4. UI 介面 ---
+st.title("🛡️ 拍賣監測助手")
+
+with st.sidebar:
+    input_url = st.text_input("輸入商品網址")
+    if st.button("開始監測"):
+        if input_url:
+            with st.spinner("正在解析網頁..."):
+                t, img = get_web_data(input_url)
+                if "失敗" not in t:
+                    supabase.table("items").insert({"title": t, "image_url": img, "url": input_url}).execute()
+                    st.success(f"成功加入: {t}")
+                else:
+                    st.error(t)
+
+# 顯示清單
+st.header("監測清單")
+try:
+    res = supabase.table("items").select("*").execute()
+    for item in res.data:
+        st.write(f"📍 {item['title']}")
+except:
+    st.info("目前無資料。")
 # --- 1. 連接 Supabase 與後續邏輯 ---
 # ... (之後的程式碼)
 
