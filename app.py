@@ -1,20 +1,28 @@
 import streamlit as st
 from supabase import create_client, Client
 from playwright.sync_api import sync_playwright
-import pandas as pd
 import time
 import os
 import sys
 import subprocess
 
-# --- 0. 環境檢查 ---
+# --- 0. 環境檢查 (針對 Streamlit Cloud 優化版) ---
 def ensure_playwright_installed():
-    # 檢查是否已安裝過瀏覽器，避免每次啟動重複安裝
-    if not os.path.exists(os.path.expanduser("~/.cache/ms-playwright")):
-        with st.spinner("首次運行，正在安裝瀏覽器元件..."):
-            # 只安裝 chromium 本體即可，系統依賴由 packages.txt 處理
-            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
-            st.success("瀏覽器安裝完成！")
+    # 檢查瀏覽器是否已安裝在快取目錄
+    playwright_path = os.path.expanduser("~/.cache/ms-playwright")
+    if not os.path.exists(playwright_path):
+        with st.spinner("首次運行，正在安裝雲端瀏覽器環境 (約需 1 分鐘)..."):
+            try:
+                # 安裝 chromium 瀏覽器本體
+                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+            except Exception as e:
+                st.error(f"瀏覽器安裝失敗: {e}")
+
+# 執行環境檢查
+ensure_playwright_installed()
+
+# --- 接下來是連接 Supabase 的代碼 ---
+# ... (之後的代碼保持不變，確保 launch 參數包含 --no-sandbox)
 
 ensure_playwright_installed()
 
