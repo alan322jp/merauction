@@ -1,22 +1,29 @@
 import streamlit as st
-from supabase import create_client, Client
-from playwright.sync_api import sync_playwright
-import time
-import os
 import sys
+import os
 import subprocess
 
-# --- 0. 環境檢查 (避開權限衝突版) ---
+# --- 0. 環境檢查 (精確路徑 + 快取保護版) ---
+@st.cache_resource
 def ensure_playwright_installed():
-    playwright_path = os.path.expanduser("~/.cache/ms-playwright")
-    # 只要 chromium 沒裝好，就跑安裝
-    if not os.path.exists(playwright_path) or not os.listdir(playwright_path):
-        with st.spinner("正在初始化瀏覽器環境 (約 30 秒)..."):
-            # 使用系統路徑直接調用 playwright
-            subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True)
+    try:
+        # 使用 sys.executable 確保指向當前的 Python 3.13 環境
+        # 增加 --with-deps 嘗試一併補齊可能缺失的系統庫
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        return True
+    except Exception as e:
+        st.error(f"瀏覽器初始化失敗，請嘗試 Reboot App。錯誤: {e}")
+        return False
 
-# 放到 App 開始的位置
-ensure_playwright_installed()
+# 執行檢查
+is_ready = ensure_playwright_installed()
+
+# 如果環境沒準備好，就停止執行後續程式碼，避免反覆噴錯
+if not is_ready:
+    st.stop()
+
+# --- 1. 連接 Supabase 與後續邏輯 ---
+# ... (之後的程式碼)
 
 # --- 1. 連接 Supabase (請確保 Secrets 已填寫) ---
 url: str = st.secrets["supabase_url"]
